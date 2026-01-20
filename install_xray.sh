@@ -25,90 +25,51 @@ do_cleanup() {
     rm -rf /etc/xray /usr/local/share/xray ${XRAY_BIN} ${LOG_PATH} /etc/init.d/xray
 }
 
-# 2. 下载并解压 Xray (增强版)
+# 2. 下载并解压 Xray
 download_xray() {
-    echo -e "${BLUE}检查必要依赖...${NC}"
-    apk add curl unzip openssl ca-certificates uuidgen tar gcompat > /dev/null 2>&1
+    echo -e "${BLUE}安装依赖 (含 libc6-compat)...${NC}"
+    apk update && apk add curl unzip openssl ca-certificates uuidgen tar gcompat libc6-compat > /dev/null 2>&1
 
     echo -e "${BLUE}正在获取最新版本号...${NC}"
-    # 使用更严谨的正则匹配版本号
     NEW_VER=$(curl -sL https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep '"tag_name":' | head -n 1 | cut -d'"' -f4)
+    [ -z "$NEW_VER" ] && NEW_VER="v24.12.31"
     
-    # 容错处理：如果获取失败，使用手动指定的稳定版
-    if [ -z "$NEW_VER" ] || [ "$(echo $NEW_VER | cut -c1)" != "v" ]; then
-        echo -e "${RED}GitHub API 获取失败，使用预设版本 v24.12.31${NC}"
-        NEW_VER="v24.12.31"
-    fi
+    echo -e "${GREEN}目标版本: ${NEW_VER}${NC}"
+    curl -L -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/${NEW_VER}/Xray-linux-${X_ARCH}.zip"
     
-    echo -e "${GREEN}目标安装版本: ${NEW_VER}${NC}"
-    
-    # 尝试下载
-    DOWNLOAD_URL="https://github.com/XTLS/Xray-core/releases/download/${NEW_VER}/Xray-linux-${X_ARCH}.zip"
-    curl -L -o /tmp/xray.zip "${DOWNLOAD_URL}"
-    
-    # 严格检查下载文件大小 (小于 10KB 肯定不对)
-    FILE_SIZE=$(wc -c < "/tmp/xray.zip")
-    if [ "$FILE_SIZE" -lt 10240 ]; then
-        echo -e "${RED}下载失败：文件损坏或网络被拦截。请检查与 GitHub 的连接。${NC}"
-        exit 1
-    fi
-
     mkdir -p /etc/xray /usr/local/share/xray /tmp/xray_tmp
     unzip -o /tmp/xray.zip -d /tmp/xray_tmp
-    
-    if [ ! -f "/tmp/xray_tmp/xray" ]; then
-        echo -e "${RED}解压失败：压缩包内未找到二进制文件！${NC}"
-        exit 1
-    fi
-
     mv -f /tmp/xray_tmp/xray ${XRAY_BIN}
     mv -f /tmp/xray_tmp/*.dat /usr/local/share/xray/
     chmod +x ${XRAY_BIN}
     rm -rf /tmp/xray.zip /tmp/xray_tmp
 }
 
-# 3. 更新功能
-do_update() {
-    if [ ! -f "${XRAY_BIN}" ]; then
-        echo -e "${RED}未检测到已安装的 Xray。${NC}"
-        exit 1
-    fi
-    echo -e "${BLUE}开始保留配置更新...${NC}"
-    rc-service xray stop
-    download_xray
-    rc-service xray start
-    echo -e "${GREEN}Xray 二进制文件已更新。${NC}"
-    exit 0
-}
-
-# 指令处理
-if [ "$1" = "uninstall" ]; then
-    do_cleanup
-    echo -e "${GREEN}卸载完成。${NC}"
-    exit 0
-fi
-
-if [ "$1" = "update" ]; then
-    do_update
-fi
-
-# 默认覆盖安装流程
+# 运行安装
 do_cleanup
 download_xray
 
-# 4. 密钥生成 (增加成功检查)
+# 4. 密钥生成 (根据 image_a23894.jpg 彻底适配)
 echo -e "${BLUE}生成 Reality 密钥对...${NC}"
-X_KEYS=$(${XRAY_BIN} x25519)
-UUID=$(${XRAY_BIN} uuid)
+X_KEYS_ALL=$(${XRAY_BIN} x25519 2>/dev/null)
+UUID=$(${XRAY_BIN} uuid 2>/dev/null)
 
-PRIVATE_KEY=$(echo "${X_KEYS}" | grep "Private key" | awk '{print $NF}')
-PUBLIC_KEY=$(echo "${X_KEYS}" | grep "Public key" | awk '{print $NF}')
+# 核心修复：
+# 私钥抓取包含 "PrivateKey" 的行
+PRIVATE_KEY=$(echo "${X_KEYS_ALL}" | grep "PrivateKey" | awk '{print $NF}')
+# 公钥抓取包含 "Password" 的行 (对应你的截图输出)
+PUBLIC_KEY=$(echo "${X_KEYS_ALL}" | grep "Password" | awk '{print $NF}')
+
+# 兜底：如果上面没抓到 Password，再尝试抓取传统的 PublicKey 关键字
+[ -z "$PUBLIC_KEY" ] && PUBLIC_KEY=$(echo "${X_KEYS_ALL}" | grep "Public" | awk '{print $NF}')
+
 SHORT_ID=$(openssl rand -hex 4)
 DEST_DOMAIN="speed.cloudflare.com"
 
-# 如果密钥获取失败则报错
-if [ -z "$PRIVATE_KEY" ]; then
-    echo -e "${RED}错误：无法通过 Xray 生成密钥。${NC}"
+# 检查
+if [ -z "$PRIVATE_KEY" ] || [ -z "$PUBLIC_KEY" ]; then
+    echo -e "${RED}错误：密钥提取仍然失败！${NC}"
+    echo -e "原始输出为：\n${X_KEYS_ALL}"
     exit 1
 fi
 
@@ -173,7 +134,7 @@ chmod +x /etc/init.d/xray
 rc-update add xray default
 rc-service xray restart
 
-# 7. 输出
+# 7. 输出结果
 sleep 2
 PID=$(pidof xray)
 IP=$(curl -s ifconfig.me)
@@ -182,13 +143,9 @@ COMMON_PARAM="encryption=none&flow=xtls-rprx-vision&security=reality&sni=${DEST_
 echo ""
 echo -e "${GREEN}================ 安装完成 ===================${NC}"
 [ -n "$PID" ] && echo -e "运行状态: ${GREEN}运行中 (PID: $PID)${NC}" || echo -e "运行状态: ${RED}启动失败${NC}"
-echo -e "配置文件路径: ${BLUE}${CONF_PATH}${NC}"
-echo -e "客户端公钥: ${GREEN}${PUBLIC_KEY}${NC}"
 echo "------------------------------------------------"
-echo -e "${BLUE}[v2RayN / Nekobox 链接]:${NC}"
 echo -e "vless://${UUID}@${IP}:443?${COMMON_PARAM}#Alpine_Reality"
-echo ""
-echo -e "${BLUE}[实时日志]:${NC} tail -f ${LOG_PATH}"
-echo -e "${GREEN}[更新命令]:${NC} sh $0 update"
+echo "------------------------------------------------"
+echo -e "${GREEN}[实时日志]:${NC} tail -f ${LOG_PATH}"
 echo -e "${RED}[卸载指令]:${NC} sh $0 uninstall"
 echo -e "${GREEN}=============================================${NC}"
