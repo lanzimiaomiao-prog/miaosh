@@ -1,35 +1,48 @@
-# miaosh
-这是一个一键脚本库
+这是一个alpine一键脚本库
+该脚本是找gemini ai搓的
+安装的文件都是从官方仓库获取
+
 确保你安装了curl
-
-找gemini搓的
-
 
 ```
 apk  update
 apk add curl
 ```
-
-
-```
-curl -o hy2.sh -fSL https://github.com/lanzimiaomiao-prog/miaosh/raw/main/install_hy2.sh && sh hy2.sh
-```
-```
-sh hy2.sh update
-```
-```
-sh hy2.sh uninstall
+**reality**
 
 ```
+curl -o install_xray.sh -fSL https://github.com/lanzimiaomiao-prog/miaosh/raw/main/install_xray.sh  && sh install_xray.sh
+```
+**hysteria2**
+```
+curl -o install_hy2.sh -fSL https://github.com/lanzimiaomiao-prog/miaosh/raw/main/install_hy2.sh && sh install_hy2.sh
+```
+
+覆盖安装: 
+```
+sh install_hy2.sh
+```
+保留配置更新:
+```
+sh install_hy2.sh update
+```
+卸载程序: 
+```
+sh install_hy2.sh uninstall
+```
 
 
 
+
+覆盖安装: 
 ```
-curl -o xray.sh -fSL https://github.com/lanzimiaomiao-prog/miaosh/raw/main/install_xray.sh  && sh hy2.sh
+sh install_xray.sh
 ```
+卸载程序: 
 ```
-sh xray.sh update
+sh install_xray.sh update
 ```
+保留配置更新:
 ```
-sh xray.sh uninstall
+sh install_xray.sh uninstall
 ```
