@@ -57,10 +57,12 @@ if [ "$ACTION" = "update" ] && [ -f "/etc/hysteria/config.yaml" ]; then
     HY_PASSWORD=$(grep 'password:' /etc/hysteria/config.yaml | awk '{print $2}')
 else
     echo -e "${RED}正在执行覆盖安装/初始化...${NC}"
-    # 生成新证书
-    openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -subj "/CN=www.bing.com" -days 3650
+    # 生成新证书 (已通过 2>/dev/null 隐藏进度条)
+    openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -subj "/CN=www.bing.com" -days 3650 2>/dev/null
+    
     # 生成新密码
     HY_PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 25)
+    
     # 写入新配置
     cat << EOC > /etc/hysteria/config.yaml
 listen: :443
