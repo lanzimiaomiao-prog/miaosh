@@ -3,6 +3,7 @@
 确保你安装了curl
 
 apk update
+
 apk add curl
 
 Alpine一键安装hysteria2
