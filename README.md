@@ -17,32 +17,3 @@ curl -o install_xray.sh -fSL https://github.com/lanzimiaomiao-prog/miaosh/raw/ma
 ```
 curl -o install_hy2.sh -fSL https://github.com/lanzimiaomiao-prog/miaosh/raw/main/install_hy2.sh && sh install_hy2.sh
 ```
-
-覆盖安装: 
-```
-sh install_hy2.sh
-```
-保留配置更新:
-```
-sh install_hy2.sh update
-```
-卸载程序: 
-```
-sh install_hy2.sh uninstall
-```
-
-
-
-
-覆盖安装: 
-```
-sh install_xray.sh
-```
-卸载程序: 
-```
-sh install_xray.sh update
-```
-保留配置更新:
-```
-sh install_xray.sh uninstall
-```
