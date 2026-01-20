@@ -10,37 +10,7 @@ CONF_PATH="/etc/xray/config.json"
 XRAY_BIN="/usr/local/bin/xray"
 LOG_PATH="/var/log/xray.log"
 
-# 1. 强效清理函数 (检测并清空旧文件)
-do_cleanup() {
-    echo -e "${BLUE}正在检测并清理旧环境...${NC}"
-    [ -f /etc/init.d/xray ] && rc-service xray stop 2>/dev/null && rc-update del xray default 2>/dev/null
-    
-    # 彻底删除相关路径和文件
-    paths="/etc/xray /usr/local/share/xray /usr/local/bin/xray ${LOG_PATH} /etc/init.d/xray"
-    for p in $paths; do
-        if [ -e "$p" ]; then
-            echo -e "${RED}删除已存在路径: $p${NC}"
-            rm -rf "$p"
-        fi
-    done
-}
-
-# 卸载逻辑
-if [ "$1" = "uninstall" ]; then
-    do_cleanup
-    echo -e "${GREEN}卸载完成，环境已清空。${NC}"
-    exit 0
-fi
-
-# 执行清理动作
-do_cleanup
-
-# 2. 环境准备
-echo -e "${BLUE}安装基础依赖...${NC}"
-apk update
-apk add curl openssl ca-certificates uuidgen tar gcompat
-
-# 3. 下载 Xray
+# 获取架构
 ARCH=$(uname -m)
 case ${ARCH} in
     x86_64)  X_ARCH="64" ;;
@@ -48,38 +18,71 @@ case ${ARCH} in
     *) echo "不支持的架构"; exit 1 ;;
 esac
 
-echo -e "${BLUE}下载最新 Xray (musl)...${NC}"
-NEW_VER=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep 'tag_name' | cut -d\" -f4)
-curl -L -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/${NEW_VER}/Xray-linux-${X_ARCH}.zip"
+# 1. 强效清理函数
+do_cleanup() {
+    echo -e "${BLUE}正在清理旧环境...${NC}"
+    [ -f /etc/init.d/xray ] && rc-service xray stop 2>/dev/null && rc-update del xray default 2>/dev/null
+    rm -rf /etc/xray /usr/local/share/xray ${XRAY_BIN} ${LOG_PATH} /etc/init.d/xray
+}
 
-mkdir -p /etc/xray /usr/local/share/xray
-unzip -o /tmp/xray.zip -d /tmp/xray_tmp
-mv /tmp/xray_tmp/xray ${XRAY_BIN}
-mv /tmp/xray_tmp/*.dat /usr/local/share/xray/
-chmod +x ${XRAY_BIN}
-rm -rf /tmp/xray.zip /tmp/xray_tmp
+# 2. 下载并解压 Xray
+download_xray() {
+    echo -e "${BLUE}正在获取最新版本号...${NC}"
+    NEW_VER=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep 'tag_name' | cut -d\" -f4)
+    echo -e "${GREEN}最新版本为: ${NEW_VER}${NC}"
+    curl -L -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/${NEW_VER}/Xray-linux-${X_ARCH}.zip"
+    
+    mkdir -p /etc/xray /usr/local/share/xray
+    unzip -o /tmp/xray.zip -d /tmp/xray_tmp
+    mv -f /tmp/xray_tmp/xray ${XRAY_BIN}
+    mv -f /tmp/xray_tmp/*.dat /usr/local/share/xray/
+    chmod +x ${XRAY_BIN}
+    rm -rf /tmp/xray.zip /tmp/xray_tmp
+}
 
-# 4. 密钥生成 (保持安装过程输出，不使用 clear)
-echo -e "${BLUE}生成 Reality 配置信息...${NC}"
+# 3. 更新功能 (保留配置)
+do_update() {
+    if [ ! -f "${XRAY_BIN}" ]; then
+        echo -e "${RED}未检测到已安装的 Xray，请直接运行安装。${NC}"
+        exit 1
+    fi
+    echo -e "${BLUE}正在执行无损更新 (保留配置)...${NC}"
+    rc-service xray stop
+    download_xray
+    rc-service xray start
+    echo -e "${GREEN}Xray 已更新至最新版本！${NC}"
+    ${XRAY_BIN} version
+    exit 0
+}
+
+# 卸载逻辑
+if [ "$1" = "uninstall" ]; then
+    do_cleanup
+    echo -e "${GREEN}卸载完成。${NC}"
+    exit 0
+fi
+
+# 更新逻辑
+if [ "$1" = "update" ]; then
+    do_update
+fi
+
+# --- 开始全新安装流程 ---
+do_cleanup
+apk update
+apk add curl openssl ca-certificates uuidgen tar gcompat
+
+download_xray
+
+# 4. 密钥生成 (精准行抓取)
+echo -e "${BLUE}生成 Reality 密钥对...${NC}"
 X_KEYS=$(${XRAY_BIN} x25519)
 UUID=$(${XRAY_BIN} uuid)
 
-echo "--------------------------------"
-echo "Xray 密钥对生成回显:"
-echo "${X_KEYS}"
-echo "--------------------------------"
-
-# 提取 PrivateKey 和 PublicKey
-PRIVATE_KEY=$(echo "${X_KEYS}" | grep "Private" | awk -F': ' '{print $2}' | tr -d '[:space:]')
-PUBLIC_KEY=$(echo "${X_KEYS}" | grep "Public" | awk -F': ' '{print $2}' | tr -d '[:space:]')
+PRIVATE_KEY=$(echo "${X_KEYS}" | sed -n '1p' | sed 's/.* //')
+PUBLIC_KEY=$(echo "${X_KEYS}" | sed -n '2p' | sed 's/.* //')
 SHORT_ID=$(openssl rand -hex 4)
 DEST_DOMAIN="speed.cloudflare.com"
-
-if [ -z "$PRIVATE_KEY" ] || [ -z "$PUBLIC_KEY" ]; then
-    echo -e "${RED}提取失败，尝试后备方案提取...${NC}"
-    PRIVATE_KEY=$(echo "${X_KEYS}" | sed -n '1p' | awk '{print $NF}')
-    PUBLIC_KEY=$(echo "${X_KEYS}" | sed -n '2p' | awk '{print $NF}')
-fi
 
 # 5. 写入配置 (指纹: random)
 cat << CONF > ${CONF_PATH}
@@ -128,7 +131,7 @@ cat << CONF > ${CONF_PATH}
 }
 CONF
 
-# 6. 服务配置
+# 6. OpenRC 服务配置
 cat << 'SERVICE' > /etc/init.d/xray
 #!/sbin/openrc-run
 description="Xray Reality Service"
@@ -148,24 +151,19 @@ PID=$(pidof xray)
 IP=$(curl -s ifconfig.me)
 COMMON_PARAM="encryption=none&flow=xtls-rprx-vision&security=reality&sni=${DEST_DOMAIN}&fp=random&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&type=tcp&headerType=none"
 
-VLESS_LINK="vless://${UUID}@${IP}:443?${COMMON_PARAM}#Alpine_Reality"
-CLASH_CONFIG="- {name: Alpine_Reality, type: vless, server: ${IP}, port: 443, uuid: ${UUID}, udp: true, tls: true, flow: xtls-rprx-vision, servername: ${DEST_DOMAIN}, network: tcp, reality-opts: {public-key: ${PUBLIC_KEY}, short-id: ${SHORT_ID}}, client-fingerprint: random}"
-
 echo ""
-echo -e "${GREEN}================ 安装与配置完成 ===================${NC}"
+echo -e "${GREEN}================ 安装完成 ===================${NC}"
 [ -n "$PID" ] && echo -e "运行状态: ${GREEN}运行中 (PID: $PID)${NC}" || echo -e "运行状态: ${RED}启动失败${NC}"
 echo -e "配置文件: ${BLUE}${CONF_PATH}${NC}"
 echo -e "客户端公钥: ${GREEN}${PUBLIC_KEY}${NC}"
 echo "------------------------------------------------"
-echo -e "${BLUE}[v2RayN / Nekobox 链接]:${NC}"
-echo -e "${VLESS_LINK}"
-echo ""
-echo -e "${BLUE}[Shadowrocket 链接]:${NC}"
-echo -e "${VLESS_LINK}&tfo=1"
+echo -e "${BLUE}[v2RayN / Nekobox / Shadowrocket 链接]:${NC}"
+echo -e "vless://${UUID}@${IP}:443?${COMMON_PARAM}#Alpine_Reality"
 echo ""
 echo -e "${BLUE}[Clash Meta 节点]:${NC}"
-echo -e "${CLASH_CONFIG}"
+echo -e "- {name: Alpine_Reality, type: vless, server: ${IP}, port: 443, uuid: ${UUID}, udp: true, tls: true, flow: xtls-rprx-vision, servername: ${DEST_DOMAIN}, network: tcp, reality-opts: {public-key: ${PUBLIC_KEY}, short-id: ${SHORT_ID}}, client-fingerprint: random}"
 echo "------------------------------------------------"
-echo -e "${GREEN}[实时日志查看]:${NC} tail -f ${LOG_PATH}"
-echo -e "${RED}[卸载与清理]:${NC} sh $0 uninstall"
+echo -e "${GREEN}[更新命令]:${NC} sh $0 update"
+echo -e "${GREEN}[实时日志]:${NC} tail -f ${LOG_PATH}"
+echo -e "${RED}[卸载指令]:${NC} sh $0 uninstall"
 echo -e "${GREEN}=============================================${NC}"
