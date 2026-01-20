@@ -17,3 +17,9 @@ curl -o install_xray.sh -fSL https://github.com/lanzimiaomiao-prog/miaosh/raw/ma
 ```
 curl -o install_hy2.sh -fSL https://github.com/lanzimiaomiao-prog/miaosh/raw/main/install_hy2.sh && sh install_hy2.sh
 ```
+
+
+**调整tcp窗口大小**
+```
+curl -o tcp_alpine.sh -fSL https://github.com/lanzimiaomiao-prog/miaosh/raw/main/tcp_alpine.sh && sh tcp_alpine.sh
+```
